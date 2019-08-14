@@ -36,8 +36,10 @@ class BackendClient:
 
 
     def parse_dbf(self):
+        filename = os.path.expandvars(
+            r'%LOCALAPPDATA%\GOG.com\Galaxy\plugins\installed\dolphin_fc3e85e4-c66b-4310-96c0-8f95cc43e546\Index.txt')
         file = open(
-            r"%LOCALAPPDATA%\GOG.com\Galaxy\plugins\installed\dolphin_fc3e85e4-c66b-4310-96c0-8f95cc43e546\Index.txt",
+            filename,
             encoding="utf8")
 
         records = []
