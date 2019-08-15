@@ -6,6 +6,6 @@
     "description": "GameCube Dolphin Plugin for GOG Galaxy 2.0",
     "author": "JTNDev",
     "email": "thejokister@gmail.com",
-    "url": "https://github.com/AHCoder/galaxy-integration-ps2",
+    "url": "https://github.com/JTNDev/galaxy-integration-wii/blob/master/manifest.json",
     "script": "plugin.py"
 }
