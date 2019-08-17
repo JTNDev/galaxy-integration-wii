@@ -22,3 +22,4 @@ Limitations:
 All ROMs must be in the same folder, no subfolders, and also the name of the ROM must be equivalent
 to its counterpart in Index.txt. You can look up the name in Index.txt and edit it
 accordingly.
+Games with symbols in their names don't work yet, will be fixed soon.
