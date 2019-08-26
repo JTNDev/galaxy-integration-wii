@@ -1,4 +1,4 @@
 # Set your roms folder here
-roms_path = "H:/roms/Wii"
+roms_path = "E:/Joshua's Stuff/roms/Wii"
 # Set the path to your Dolphin.exe here
 emu_path = "C:/Program Files/Dolphin/Dolphin-x64/Dolphin.exe"
