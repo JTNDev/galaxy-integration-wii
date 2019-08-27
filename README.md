@@ -22,4 +22,5 @@ Limitations:
 All ROMs must be in the same folder, no subfolders, and also the name of the ROM must be equivalent
 to its counterpart in Index.txt. You can look up the name in Index.txt and edit it
 accordingly.
-Games with symbols in their names don't work yet, will be fixed soon.
+If one item in the folder cannot be recognized by the program, none of them can. You can have files with different file extensions in the same folder but if you have for example, "Kingdom Hearts.iso" in the same folder none of them will be registered in GOG Galaxy 2.0.
+
