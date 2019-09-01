@@ -13,7 +13,7 @@ Just download the file here and extract the ZIP into:
 C:\Users\coolj\AppData\Local\GOG.com\Galaxy\plugins\installed
 
 Open up user_config.py and edit the ROM and Dolphin location
-Make sure you use "/" instead of "\" for the file paths
+Make sure you use "/" instead of "\\" for the file paths
 
 Go into GOG Galaxy 2.0, click on integrations and connect the one with "Nintendo Wii" 
 and you're done.
