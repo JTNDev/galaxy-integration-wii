@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 import sys
 
+
 import user_config
 from backend import BackendClient
 from galaxy.api.consts import LicenseType, LocalGameState, Platform

@@ -7,9 +7,11 @@ import urllib.request
 import user_config
 from galaxy.api.consts import LocalGameState
 from galaxy.api.types import LocalGame
-
+from xml.dom import minidom
+from xml.etree import ElementTree
 
 class BackendClient:
+
     def __init__(self):
         self.paths = []
         self.results = []
@@ -24,7 +26,7 @@ class BackendClient:
 
         for rom in self.roms:
             for record in database_records:
-                if(rom == record[1]):
+                if rom == record[1]:
                     self.results.append(
                         [record[0], record[1]]
                     )
@@ -36,22 +38,21 @@ class BackendClient:
 
 
     def parse_dbf(self):
-        filename = os.path.expandvars(
-            r'%LOCALAPPDATA%\GOG.com\Galaxy\plugins\installed\dolphin_fc3e85e4-c66b-4310-96c0-8f95cc43e546\Index.txt')
-        file = open(
-            filename,
-            encoding="utf8")
-
+        file = ElementTree.parse(os.path.expandvars(r'%LOCALAPPDATA%\GOG.com\Galaxy\plugins\installed\dolphin_fc3e85e4-c66b-4310-96c0-8f95cc43e546\games.xml'))
+        games_xml = file.getroot()
+        games = games_xml.findall('game')
         records = []
         serials = []
         names = []
-        for line in file:
-            line = line.strip()                      # For each line
-            if not line.startswith("TITLES"):        # check if it starts with "Name"
-                split_line = line.split(" = ")       # Split the line into "Name" and the name of the game
-                if split_line[1] not in names:       # If the name isn't already in the list,
-                    names.append(split_line[1])      # add it
-                    serials.append(split_line[0])    # Add the serial
+        for game in games:
+            game_id = game.find('id').text
+            game_platform = game.find('type').text
+            locale = game.find('locale')
+            game_name = locale.find('title').text
+            if game_platform != "GameCube":
+                if game_name not in names:       # If the name isn't already in the list,
+                    names.append(game_name)      # add it
+                    serials.append(game_id)    # Add the serial
 
         for serial, name in zip(serials, names):
             records.append([serial, name])
