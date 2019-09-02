@@ -2,7 +2,7 @@
     "name": "Dolphin for GOG Galaxy 2.0",
     "platform": "nwii",
     "guid": "fc3e85e4-c66b-4310-96c0-8f95cc43e546",
-    "version": "0.2.1",
+    "version": "0.2.0",
     "description": "GameCube Dolphin Plugin for GOG Galaxy 2.0",
     "author": "JTNDev",
     "email": "thejokister@gmail.com",
