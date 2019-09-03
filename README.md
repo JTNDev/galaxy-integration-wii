@@ -8,7 +8,7 @@ If you want to download it go here:
 Thank you AHCoder for the original program, and the Index file 
 which gives the game database is from GameTDB.
 
-Setup:
+# Setup:
 Just download the file here and extract the ZIP into:
 C:\Users\coolj\AppData\Local\GOG.com\Galaxy\plugins\installed
 
@@ -18,7 +18,7 @@ Make sure you use "/" instead of "\\" for the file paths
 Go into GOG Galaxy 2.0, click on integrations and connect the one with "Nintendo Wii" 
 and you're done.
 
-Limitations:
+# Limitations:
 All ROMs must be in the same folder, no subfolders, and also the name of the ROM must be equivalent
 to its counterpart in Index.txt. You can look up the name in Index.txt and edit it
 accordingly.
