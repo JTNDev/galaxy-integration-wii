@@ -1,14 +1,25 @@
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
-
 import user_config
 from galaxy.api.consts import LocalGameState
 from galaxy.api.types import LocalGame
 from xml.dom import minidom
 from xml.etree import ElementTree
+
+def get_the_game_times():
+    file = ElementTree.parse(os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
+    game_times = {}
+    games_xml = file.getroot()
+    for game in games_xml.iter('game'):
+        game_id = str(game.find('id').text)
+        tt = game.find('time').text
+        ltp = game.find('lasttimeplayed').text
+        game_times[game_id] = [tt, ltp]
+    return game_times
 
 class BackendClient:
 

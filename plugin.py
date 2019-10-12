@@ -1,13 +1,14 @@
 import asyncio
+import os
 import subprocess
 import sys
 
 
 import user_config
-from backend import BackendClient
+from backend import BackendClient, get_the_game_times
 from galaxy.api.consts import LicenseType, LocalGameState, Platform
 from galaxy.api.plugin import Plugin, create_and_run_plugin
-from galaxy.api.types import Authentication, Game, LicenseInfo, LocalGame
+from galaxy.api.types import Authentication, Game, LicenseInfo, LocalGame, GameTime
 from version import __version__
 
 class DolphinPlugin(Plugin):
@@ -15,7 +16,9 @@ class DolphinPlugin(Plugin):
         super().__init__(Platform.NintendoWii, __version__, reader, writer, token)
         self.backend_client = BackendClient()
         self.games = []
+        self.game_times = get_the_game_times()
         self.local_games_cache = self.local_games_list()
+
 
 
     async def authenticate(self, stored_credentials=None):
@@ -38,7 +41,12 @@ class DolphinPlugin(Plugin):
         emu_path = user_config.emu_path
         for game in self.games:
             if str(game[1]) == game_id:
-                subprocess.Popen([emu_path, "-b", "-e", game[0]])
+                if user_config.retroarch is not True:
+                    subprocess.Popen([emu_path, "-b", "-e", game[0]])
+                    subprocess.Popen(
+                        [os.path.dirname(os.path.realpath(__file__)) + r'\TimeTracker.exe', game_id, game_id])
+                else:
+                    subprocess.Popen([user_config.retroarch_executable, "-L", user_config.core_path + r'\dolphin_libretro.dll', game[0]])
                 break
         return
 
@@ -48,6 +56,11 @@ class DolphinPlugin(Plugin):
     async def uninstall_game(self, game_id):
         pass
 
+    async def get_game_time(self, game_id, context=None):
+        game_times = self.game_times
+        game_time = int(game_times[game_id][0])
+        game_time /= 60
+        return GameTime(game_id, game_time, game_times[game_id][1])
 
     def local_games_list(self):
         local_games = []
