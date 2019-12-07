@@ -9,6 +9,7 @@ from galaxy.api.consts import LocalGameState
 from galaxy.api.types import LocalGame
 from xml.dom import minidom
 from xml.etree import ElementTree
+from fuzzywuzzy import fuzz, process
 
 def get_the_game_times():
     file = ElementTree.parse(os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
@@ -36,13 +37,26 @@ class BackendClient:
         self.get_rom_names()
 
         for rom in self.roms:
+            best_record = []
+            best_ratio = 0
             for record in database_records:
-                if rom == record[1]:
-                    self.results.append(
-                        [record[0], record[1]]
-                    )
+                if user_config.best_match_game_detection:
+                    current_ratio = fuzz.token_sort_ratio(rom, record[
+                        1])  # Calculate the ratio of the name with the current record
+                    if current_ratio > best_ratio:
+                        best_ratio = current_ratio
+                        best_record = record
+                else:
+                    # User wants exact match
+                    if rom == record[1]:
+                        self.results.append(
+                            [record[0], record[1]]
+                        )
 
-        for x,y in zip(self.paths, self.results):
+            # Save the best record that matched the game
+            if user_config.best_match_game_detection:
+                self.results.append([best_record[0], best_record[1]])
+        for x, y in zip(self.paths, self.results):
             x.extend(y)
 
         return self.paths
