@@ -9,6 +9,7 @@ from galaxy.api.consts import LocalGameState
 from galaxy.api.types import LocalGame
 from xml.dom import minidom
 from xml.etree import ElementTree
+from fuzzywuzzy import fuzz, process
 
 def get_the_game_times():
     file = ElementTree.parse(os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
@@ -36,12 +37,25 @@ class BackendClient:
         self.get_rom_names()
 
         for rom in self.roms:
+            best_record = []
+            best_ratio = 0
             for record in database_records:
-                if rom == record[1]:
-                    self.results.append(
-                        [record[0], record[1]]
-                    )
+                if user_config.best_match_game_detection:
+                    current_ratio = fuzz.token_sort_ratio(rom, record[
+                        1])  # Calculate the ratio of the name with the current record
+                    if current_ratio > best_ratio:
+                        best_ratio = current_ratio
+                        best_record = record
+                else:
+                    # User wants exact match
+                    if rom == record[1]:
+                        self.results.append(
+                            [record[0], record[1]]
+                        )
 
+            # Save the best record that matched the game
+            if user_config.best_match_game_detection:
+                self.results.append([best_record[0], best_record[1]])
         for x,y in zip(self.paths, self.results):
             x.extend(y)
 
@@ -49,7 +63,7 @@ class BackendClient:
 
 
     def parse_dbf(self):
-        file = ElementTree.parse(os.path.expandvars(r'%LOCALAPPDATA%\GOG.com\Galaxy\plugins\installed\dolphin_fc3e85e4-c66b-4310-96c0-8f95cc43e546\games.xml'))
+        file = ElementTree.parse(os.path.dirname(os.path.realpath(__file__)) + r'\games.xml')
         games_xml = file.getroot()
         games = games_xml.findall('game')
         records = []

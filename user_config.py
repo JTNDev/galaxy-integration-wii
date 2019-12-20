@@ -1,11 +1,12 @@
 # Set your roms inside the string/quotes
 roms_path = r"E:\Joshua's Stuff\roms\Wii"
 # Set the path to your Dolphin.exe inside the string/quotes
-emu_path = r"C:\Program Files\Dolphin\Dolphin-x64\Dolphin.exe"
-
+emu_path = r"C:\Program Files\Dolphin-x64\Dolphin.exe"
+#Enable to allow the best match algorithm instead of exact game name
+best_match_game_detection = True
 # Retroarch Settings
 
-# Put "yes" if you want Retroarch support, "no" if you don't
+# Put "yes" if you want Retroarch support, "no" if yous don't
 retroarch = "no"
 
 # Your Retroarch core directory (usually C:\Users\(yourusernamehere)\AppData\Roaming\RetroArch\cores)
