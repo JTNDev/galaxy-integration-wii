@@ -56,11 +56,7 @@ class BackendClient:
             # Save the best record that matched the game
             if user_config.best_match_game_detection:
                 self.results.append([best_record[0], best_record[1]])
-<<<<<<< HEAD
         for x,y in zip(self.paths, self.results):
-=======
-        for x, y in zip(self.paths, self.results):
->>>>>>> a680bc26d6714d4f04bac34e0ae6f56a06dd43df
             x.extend(y)
 
         return self.paths
