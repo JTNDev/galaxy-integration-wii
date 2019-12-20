@@ -4,16 +4,14 @@ import json
 import logging
 import logging.handlers
 import sys
-from collections import OrderedDict
 from enum import Enum
-from itertools import count
 from typing import Any, Dict, List, Optional, Set, Union
 
 from galaxy.api.consts import Feature
 from galaxy.api.errors import ImportInProgress, UnknownError
 from galaxy.api.jsonrpc import ApplicationError, NotificationClient, Server
 from galaxy.api.types import Achievement, Authentication, FriendInfo, Game, GameTime, LocalGame, NextStep
-
+from galaxy.task_manager import TaskManager
 
 class JSONEncoder(json.JSONEncoder):
     def default(self, o):  # pylint: disable=method-hidden
@@ -38,7 +36,6 @@ class Plugin:
 
         self._features: Set[Feature] = set()
         self._active = True
-        self._pass_control_task = None
 
         self._reader, self._writer = reader, writer
         self._handshake_token = handshake_token
@@ -47,29 +44,25 @@ class Plugin:
         self._server = Server(self._reader, self._writer, encoder)
         self._notification_client = NotificationClient(self._writer, encoder)
 
-        def eof_handler():
-            self._shutdown()
-
-        self._server.register_eof(eof_handler)
-
         self._achievements_import_in_progress = False
         self._game_times_import_in_progress = False
 
         self._persistent_cache = dict()
 
-        self._tasks = OrderedDict()
-        self._task_counter = count()
+        self._internal_task_manager = TaskManager("plugin internal")
+        self._external_task_manager = TaskManager("plugin external")
 
         # internal
         self._register_method("shutdown", self._shutdown, internal=True)
-        self._register_method("get_capabilities", self._get_capabilities, internal=True)
+        self._register_method("get_capabilities", self._get_capabilities, internal=True, immediate=True)
         self._register_method(
             "initialize_cache",
             self._initialize_cache,
             internal=True,
+            immediate=True,
             sensitive_params="data"
         )
-        self._register_method("ping", self._ping, internal=True)
+        self._register_method("ping", self._ping, internal=True, immediate=True)
 
         # implemented by developer
         self._register_method(
@@ -89,15 +82,8 @@ class Plugin:
         )
         self._detect_feature(Feature.ImportOwnedGames, ["get_owned_games"])
 
-        self._register_method(
-            "import_unlocked_achievements",
-            self.get_unlocked_achievements,
-            result_name="unlocked_achievements"
-        )
+        self._register_method("start_achievements_import", self._start_achievements_import)
         self._detect_feature(Feature.ImportAchievements, ["get_unlocked_achievements"])
-
-        self._register_method("start_achievements_import", self.start_achievements_import)
-        self._detect_feature(Feature.ImportAchievements, ["import_games_achievements"])
 
         self._register_method("import_local_games", self.get_local_games, result_name="local_games")
         self._detect_feature(Feature.ImportInstalledGames, ["get_local_games"])
@@ -114,21 +100,28 @@ class Plugin:
         self._register_notification("shutdown_platform_client", self.shutdown_platform_client)
         self._detect_feature(Feature.ShutdownPlatformClient, ["shutdown_platform_client"])
 
+        self._register_notification("launch_platform_client", self.launch_platform_client)
+        self._detect_feature(Feature.LaunchPlatformClient, ["launch_platform_client"])
+
         self._register_method("import_friends", self.get_friends, result_name="friend_info_list")
         self._detect_feature(Feature.ImportFriends, ["get_friends"])
 
-        self._register_method("import_game_times", self.get_game_times, result_name="game_times")
-        self._detect_feature(Feature.ImportGameTime, ["get_game_times"])
+        self._register_method("start_game_times_import", self._start_game_times_import)
+        self._detect_feature(Feature.ImportGameTime, ["get_game_time"])
 
-        self._register_method("start_game_times_import", self.start_game_times_import)
-        self._detect_feature(Feature.ImportGameTime, ["import_game_times"])
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self.close()
+        await self.wait_closed()
 
     @property
     def features(self) -> List[Feature]:
         return list(self._features)
 
     @property
-    def persistent_cache(self) -> Dict:
+    def persistent_cache(self) -> Dict[str, str]:
         """The cache is only available after the :meth:`~.handshake_complete()` is called.
         """
         return self._persistent_cache
@@ -143,55 +136,64 @@ class Plugin:
         if self._implements(methods):
             self._features.add(feature)
 
-    def _register_method(self, name, handler, result_name=None, internal=False, sensitive_params=False):
-        if internal:
+    def _register_method(self, name, handler, result_name=None, internal=False, immediate=False, sensitive_params=False):
+        def wrap_result(result):
+            if result_name:
+                result = {
+                    result_name: result
+                }
+            return result
+
+        if immediate:
             def method(*args, **kwargs):
                 result = handler(*args, **kwargs)
-                if result_name:
-                    result = {
-                        result_name: result
-                    }
-                return result
+                return wrap_result(result)
 
             self._server.register_method(name, method, True, sensitive_params)
         else:
             async def method(*args, **kwargs):
-                result = await handler(*args, **kwargs)
-                if result_name:
-                    result = {
-                        result_name: result
-                    }
-                return result
+                if not internal:
+                    handler_ = self._wrap_external_method(handler, name)
+                else:
+                    handler_ = handler
+                result = await handler_(*args, **kwargs)
+                return wrap_result(result)
 
             self._server.register_method(name, method, False, sensitive_params)
 
-    def _register_notification(self, name, handler, internal=False, sensitive_params=False):
-        self._server.register_notification(name, handler, internal, sensitive_params)
+    def _register_notification(self, name, handler, internal=False, immediate=False, sensitive_params=False):
+        if not internal and not immediate:
+            handler = self._wrap_external_method(handler, name)
+        self._server.register_notification(name, handler, immediate, sensitive_params)
+
+    def _wrap_external_method(self, handler, name: str):
+        async def wrapper(*args, **kwargs):
+            return await self._external_task_manager.create_task(handler(*args, **kwargs), name, False)
+        return wrapper
 
     async def run(self):
         """Plugin's main coroutine."""
         await self._server.run()
-        if self._pass_control_task is not None:
-            await self._pass_control_task
+
+    def close(self) -> None:
+        if not self._active:
+            return
+
+        logging.info("Closing plugin")
+        self._server.close()
+        self._external_task_manager.cancel()
+        self._internal_task_manager.create_task(self.shutdown(), "shutdown")
+        self._active = False
+
+    async def wait_closed(self) -> None:
+        await self._external_task_manager.wait()
+        await self._internal_task_manager.wait()
+        await self._server.wait_closed()
+        await self._notification_client.close()
 
     def create_task(self, coro, description):
         """Wrapper around asyncio.create_task - takes care of canceling tasks on shutdown"""
-
-        async def task_wrapper(task_id):
-            try:
-                return await coro
-            except asyncio.CancelledError:
-                logging.debug("Canceled task %d (%s)", task_id, description)
-            except Exception:
-                logging.exception("Exception raised in task %d (%s)", task_id, description)
-            finally:
-                del self._tasks[task_id]
-
-        task_id = next(self._task_counter)
-        logging.debug("Creating task %d (%s)", task_id, description)
-        task = asyncio.create_task(task_wrapper(task_id))
-        self._tasks[task_id] = task
-        return task
+        return self._external_task_manager.create_task(coro, description)
 
     async def _pass_control(self):
         while self._active:
@@ -201,13 +203,11 @@ class Plugin:
                 logging.exception("Unexpected exception raised in plugin tick")
             await asyncio.sleep(1)
 
-    def _shutdown(self):
+    async def _shutdown(self):
         logging.info("Shutting down")
-        self._server.stop()
-        self._active = False
-        self.shutdown()
-        for task in self._tasks.values():
-            task.cancel()
+        self.close()
+        await self._external_task_manager.wait()
+        await self._internal_task_manager.wait()
 
     def _get_capabilities(self):
         return {
@@ -218,8 +218,11 @@ class Plugin:
 
     def _initialize_cache(self, data: Dict):
         self._persistent_cache = data
-        self.handshake_complete()
-        self._pass_control_task = asyncio.create_task(self._pass_control())
+        try:
+            self.handshake_complete()
+        except Exception:
+            logging.exception("Unhandled exception during `handshake_complete` step")
+        self._internal_task_manager.create_task(self._pass_control(), "tick")
 
     @staticmethod
     def _ping():
@@ -247,8 +250,10 @@ class Plugin:
                 self.store_credentials(user_data['credentials'])
                 return Authentication(user_data['userId'], user_data['username'])
 
-         """
-        self.persistent_cache['credentials'] = credentials
+        """
+        # temporary solution for persistent_cache vs credentials issue
+        self.persistent_cache['credentials'] = credentials  # type: ignore
+
         self._notification_client.notify("store_credentials", credentials, sensitive_params=True)
 
     def add_game(self, game: Game) -> None:
@@ -277,7 +282,7 @@ class Plugin:
         """Notify the client to remove game from the list of owned games
         of the currently authenticated user.
 
-        :param game_id: game id of the game to remove from the list of owned games
+        :param game_id: the id of the game to remove from the list of owned games
 
         Example use case of remove_game:
 
@@ -307,7 +312,7 @@ class Plugin:
     def unlock_achievement(self, game_id: str, achievement: Achievement) -> None:
         """Notify the client to unlock an achievement for a specific game.
 
-        :param game_id: game_id of the game for which to unlock an achievement.
+        :param game_id: the id of the game for which to unlock an achievement.
         :param achievement: achievement to unlock.
         """
         params = {
@@ -316,38 +321,21 @@ class Plugin:
         }
         self._notification_client.notify("achievement_unlocked", params)
 
-    def game_achievements_import_success(self, game_id: str, achievements: List[Achievement]) -> None:
-        """Notify the client that import of achievements for a given game has succeeded.
-        This method is called by import_games_achievements.
-
-        :param game_id: id of the game for which the achievements were imported
-        :param achievements: list of imported achievements
-        """
+    def _game_achievements_import_success(self, game_id: str, achievements: List[Achievement]) -> None:
         params = {
             "game_id": game_id,
             "unlocked_achievements": achievements
         }
         self._notification_client.notify("game_achievements_import_success", params)
 
-    def game_achievements_import_failure(self, game_id: str, error: ApplicationError) -> None:
-        """Notify the client that import of achievements for a given game has failed.
-        This method is called by import_games_achievements.
-
-        :param game_id: id of the game for which the achievements import failed
-        :param error: error which prevented the achievements import
-        """
+    def _game_achievements_import_failure(self, game_id: str, error: ApplicationError) -> None:
         params = {
             "game_id": game_id,
-            "error": {
-                "code": error.code,
-                "message": error.message
-            }
+            "error": error.json()
         }
         self._notification_client.notify("game_achievements_import_failure", params)
 
-    def achievements_import_finished(self) -> None:
-        """Notify the client that importing achievements has finished.
-        This method is called by import_games_achievements_task"""
+    def _achievements_import_finished(self) -> None:
         self._notification_client.notify("achievements_import_finished", None)
 
     def update_local_game_status(self, local_game: LocalGame) -> None:
@@ -367,7 +355,7 @@ class Plugin:
                         continue
                     self.update_local_game_status(LocalGame(game.id, game.status))
                     self._cached_games_statuses[game.id] = game.status
-                asyncio.sleep(5)  # interval
+                await asyncio.sleep(5)  # interval
 
             def tick(self):
                 if self._check_statuses_task is None or self._check_statuses_task.done():
@@ -400,35 +388,18 @@ class Plugin:
         params = {"game_time": game_time}
         self._notification_client.notify("game_time_updated", params)
 
-    def game_time_import_success(self, game_time: GameTime) -> None:
-        """Notify the client that import of a given game_time has succeeded.
-        This method is called by import_game_times.
-
-        :param game_time: game_time which was imported
-        """
+    def _game_time_import_success(self, game_time: GameTime) -> None:
         params = {"game_time": game_time}
         self._notification_client.notify("game_time_import_success", params)
 
-    def game_time_import_failure(self, game_id: str, error: ApplicationError) -> None:
-        """Notify the client that import of a game time for a given game has failed.
-        This method is called by import_game_times.
-
-        :param game_id: id of the game for which the game time could not be imported
-        :param error:   error which prevented the game time import
-        """
+    def _game_time_import_failure(self, game_id: str, error: ApplicationError) -> None:
         params = {
             "game_id": game_id,
-            "error": {
-                "code": error.code,
-                "message": error.message
-            }
+            "error": error.json()
         }
         self._notification_client.notify("game_time_import_failure", params)
 
-    def game_times_import_finished(self) -> None:
-        """Notify the client that importing game times has finished.
-        This method is called by :meth:`~.import_game_times_task`.
-        """
+    def _game_times_import_finished(self) -> None:
         self._notification_client.notify("game_times_import_finished", None)
 
     def lost_authentication(self) -> None:
@@ -474,7 +445,7 @@ class Plugin:
 
         """
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         """This method is called on integration shutdown.
         Override it to implement tear down.
         This method is called by the GOG Galaxy Client."""
@@ -557,51 +528,63 @@ class Plugin:
         """
         raise NotImplementedError()
 
-    async def get_unlocked_achievements(self, game_id: str) -> List[Achievement]:
-        """
-        .. deprecated:: 0.33
-            Use :meth:`~.import_games_achievements`.
-        """
-        raise NotImplementedError()
-
-    async def start_achievements_import(self, game_ids: List[str]) -> None:
-        """Starts the task of importing achievements.
-        This method is called by the GOG Galaxy Client.
-
-        :param game_ids: ids of the games for which the achievements are imported
-        """
+    async def _start_achievements_import(self, game_ids: List[str]) -> None:
         if self._achievements_import_in_progress:
             raise ImportInProgress()
 
-        async def import_games_achievements_task(game_ids):
-            try:
-                await self.import_games_achievements(game_ids)
-            finally:
-                self.achievements_import_finished()
-                self._achievements_import_in_progress = False
+        context = await self.prepare_achievements_context(game_ids)
 
-        asyncio.create_task(import_games_achievements_task(game_ids))
+        async def import_game_achievements(game_id, context_):
+            try:
+                achievements = await self.get_unlocked_achievements(game_id, context_)
+                self._game_achievements_import_success(game_id, achievements)
+            except ApplicationError as error:
+                self._game_achievements_import_failure(game_id, error)
+            except Exception:
+                logging.exception("Unexpected exception raised in import_game_achievements")
+                self._game_achievements_import_failure(game_id, UnknownError())
+
+        async def import_games_achievements(game_ids_, context_):
+            try:
+                imports = [import_game_achievements(game_id, context_) for game_id in game_ids_]
+                await asyncio.gather(*imports)
+            finally:
+                self._achievements_import_finished()
+                self._achievements_import_in_progress = False
+                self.achievements_import_complete()
+
+        self._external_task_manager.create_task(
+            import_games_achievements(game_ids, context),
+            "unlocked achievements import",
+            handle_exceptions=False
+        )
         self._achievements_import_in_progress = True
 
-    async def import_games_achievements(self, game_ids: List[str]) -> None:
+    async def prepare_achievements_context(self, game_ids: List[str]) -> Any:
+        """Override this method to prepare context for get_unlocked_achievements.
+        This allows for optimizations like batch requests to platform API.
+        Default implementation returns None.
+
+        :param game_ids: the ids of the games for which achievements are imported
+        :return: context
         """
-        Override this method to return the unlocked achievements
-        of the user that is currently logged in to the plugin.
-        Call game_achievements_import_success/game_achievements_import_failure for each game_id on the list.
-        This method is called by the GOG Galaxy Client.
+        return None
 
-        :param game_ids: ids of the games for which to import unlocked achievements
+    async def get_unlocked_achievements(self, game_id: str, context: Any) -> List[Achievement]:
+        """Override this method to return list of unlocked achievements
+        for the game identified by the provided game_id.
+        This method is called by import task initialized by GOG Galaxy Client.
+
+        :param game_id: the id of the game for which the achievements are returned
+        :param context: the value returned from :meth:`prepare_achievements_context`
+        :return: list of Achievement objects
         """
+        raise NotImplementedError()
 
-        async def import_game_achievements(game_id):
-            try:
-                achievements = await self.get_unlocked_achievements(game_id)
-                self.game_achievements_import_success(game_id, achievements)
-            except Exception as error:
-                self.game_achievements_import_failure(game_id, error)
-
-        imports = [import_game_achievements(game_id) for game_id in game_ids]
-        await asyncio.gather(*imports)
+    def achievements_import_complete(self):
+        """Override this method to handle operations after achievements import is finished
+        (like updating cache).
+        """
 
     async def get_local_games(self) -> List[LocalGame]:
         """Override this method to return the list of
@@ -630,7 +613,7 @@ class Plugin:
         identified by the provided game_id.
         This method is called by the GOG Galaxy Client.
 
-        :param str game_id: id of the game to launch
+        :param str game_id: the id of the game to launch
 
         Example of possible override of the method:
 
@@ -648,7 +631,7 @@ class Plugin:
         identified by the provided game_id.
         This method is called by the GOG Galaxy Client.
 
-        :param str game_id: id of the game to install
+        :param str game_id: the id of the game to install
 
         Example of possible override of the method:
 
@@ -666,7 +649,7 @@ class Plugin:
         identified by the provided game_id.
         This method is called by the GOG Galaxy Client.
 
-        :param str game_id: id of the game to uninstall
+        :param str game_id: the id of the game to uninstall
 
         Example of possible override of the method:
 
@@ -681,6 +664,11 @@ class Plugin:
 
     async def shutdown_platform_client(self) -> None:
         """Override this method to gracefully terminate platform client.
+        This method is called by the GOG Galaxy Client."""
+        raise NotImplementedError()
+
+    async def launch_platform_client(self) -> None:
+        """Override this method to launch platform client. Preferably minimized to tray.
         This method is called by the GOG Galaxy Client."""
         raise NotImplementedError()
 
@@ -704,54 +692,63 @@ class Plugin:
         """
         raise NotImplementedError()
 
-    async def get_game_times(self) -> List[GameTime]:
-        """
-        .. deprecated:: 0.33
-            Use :meth:`~.import_game_times`.
-        """
-        raise NotImplementedError()
-
-    async def start_game_times_import(self, game_ids: List[str]) -> None:
-        """Starts the task of importing game times
-        This method is called by the GOG Galaxy Client.
-
-        :param game_ids: ids of the games for which the game time is imported
-        """
+    async def _start_game_times_import(self, game_ids: List[str]) -> None:
         if self._game_times_import_in_progress:
             raise ImportInProgress()
 
-        async def import_game_times_task(game_ids):
-            try:
-                await self.import_game_times(game_ids)
-            finally:
-                self.game_times_import_finished()
-                self._game_times_import_in_progress = False
+        context = await self.prepare_game_times_context(game_ids)
 
-        asyncio.create_task(import_game_times_task(game_ids))
+        async def import_game_time(game_id, context_):
+            try:
+                game_time = await self.get_game_time(game_id, context_)
+                self._game_time_import_success(game_time)
+            except ApplicationError as error:
+                self._game_time_import_failure(game_id, error)
+            except Exception:
+                logging.exception("Unexpected exception raised in import_game_time")
+                self._game_time_import_failure(game_id, UnknownError())
+
+        async def import_game_times(game_ids_, context_):
+            try:
+                imports = [import_game_time(game_id, context_) for game_id in game_ids_]
+                await asyncio.gather(*imports)
+            finally:
+                self._game_times_import_finished()
+                self._game_times_import_in_progress = False
+                self.game_times_import_complete()
+
+        self._external_task_manager.create_task(
+            import_game_times(game_ids, context),
+            "game times import",
+            handle_exceptions=False
+        )
         self._game_times_import_in_progress = True
 
-    async def import_game_times(self, game_ids: List[str]) -> None:
-        """
-        Override this method to return game times for
-        games owned by the currently authenticated user.
-        Call game_time_import_success/game_time_import_failure for each game_id on the list.
-        This method is called by GOG Galaxy Client.
+    async def prepare_game_times_context(self, game_ids: List[str]) -> Any:
+        """Override this method to prepare context for get_game_time.
+        This allows for optimizations like batch requests to platform API.
+        Default implementation returns None.
 
-        :param game_ids: ids of the games for which the game time is imported
+        :param game_ids: the ids of the games for which game time are imported
+        :return: context
         """
-        try:
-            game_times = await self.get_game_times()
-            game_ids_set = set(game_ids)
-            for game_time in game_times:
-                if game_time.game_id not in game_ids_set:
-                    continue
-                self.game_time_import_success(game_time)
-                game_ids_set.discard(game_time.game_id)
-            for game_id in game_ids_set:
-                self.game_time_import_failure(game_id, UnknownError())
-        except Exception as error:
-            for game_id in game_ids:
-                self.game_time_import_failure(game_id, error)
+        return None
+
+    async def get_game_time(self, game_id: str, context: Any) -> GameTime:
+        """Override this method to return the game time for the game
+        identified by the provided game_id.
+        This method is called by import task initialized by GOG Galaxy Client.
+
+        :param game_id: the id of the game for which the game time is returned
+        :param context: the value returned from :meth:`prepare_game_times_context`
+        :return: GameTime object
+        """
+        raise NotImplementedError()
+
+    def game_times_import_complete(self) -> None:
+        """Override this method to handle operations after game times import is finished
+        (like updating cache).
+        """
 
 
 def create_and_run_plugin(plugin_class, argv):
@@ -795,8 +792,8 @@ def create_and_run_plugin(plugin_class, argv):
         reader, writer = await asyncio.open_connection("127.0.0.1", port)
         extra_info = writer.get_extra_info("sockname")
         logging.info("Using local address: %s:%u", *extra_info)
-        plugin = plugin_class(reader, writer, token)
-        await plugin.run()
+        async with plugin_class(reader, writer, token) as plugin:
+            await plugin.run()
 
     try:
         if sys.platform == "win32":
