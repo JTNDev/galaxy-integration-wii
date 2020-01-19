@@ -2,28 +2,43 @@ import asyncio
 import os
 import subprocess
 import sys
-
+from shutil import copyfile
+from xml.etree import ElementTree
 
 import user_config
-from backend import BackendClient, get_the_game_times
+from backend import BackendClient
 from galaxy.api.consts import LicenseType, LocalGameState, Platform
 from galaxy.api.plugin import Plugin, create_and_run_plugin
 from galaxy.api.types import Authentication, Game, LicenseInfo, LocalGame, GameTime
 from version import __version__
+import time
 
 class DolphinPlugin(Plugin):
     def __init__(self, reader, writer, token):
         super().__init__(Platform.NintendoWii, __version__, reader, writer, token)
         self.backend_client = BackendClient()
         self.games = []
-        self.game_times = get_the_game_times()
+        if not os.path.exists(os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml'):
+            copyfile(os.path.dirname(os.path.realpath(__file__)) + r'\files\gametimes.xml', os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
+        self.game_times = self.get_the_game_times()
         self.local_games_cache = self.local_games_list()
+        self.runningGames = []
 
 
 
     async def authenticate(self, stored_credentials=None):
         return self.do_auth()
 
+    def get_the_game_times(self):
+        file = ElementTree.parse(os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
+        game_times = {}
+        games_xml = file.getroot()
+        for game in games_xml.iter('game'):
+            game_id = str(game.find('id').text)
+            tt = game.find('time').text
+            ltp = game.find('lasttimeplayed').text
+            game_times[game_id] = [tt, ltp]
+        return game_times
 
     async def pass_login_credentials(self, step, credentials, cookies):
         return self.do_auth()
@@ -42,9 +57,12 @@ class DolphinPlugin(Plugin):
         for game in self.games:
             if str(game[1]) == game_id:
                 if user_config.retroarch is not True:
-                    subprocess.Popen([emu_path, "-b", "-e", game[0]])
+                    openDolphin = subprocess.Popen([emu_path, "-b", "-e", game[0]])
                     subprocess.Popen(
                         [os.path.dirname(os.path.realpath(__file__)) + r'\TimeTracker.exe', game_id, game_id])
+                    gameStartingTime = time.process_time()
+                    running_game = {"game_id": game_id, "starting_time": gameStartingTime, "dolphin_running": openDolphin}
+                    self.runningGames.append(running_game)
                 else:
                     subprocess.Popen([user_config.retroarch_executable, "-L", user_config.core_path + r'\dolphin_libretro.dll', game[0]])
                 break
@@ -83,6 +101,24 @@ class DolphinPlugin(Plugin):
             self.local_games_cache = new_local_games_list
             for local_game_notify in notify_list:
                 self.update_local_game_status(local_game_notify)
+
+        file = ElementTree.parse(os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
+        for runningGame in self.runningGames:
+            if runningGame["dolphin_running"].poll() is not None:
+                current_process_time = time.process_time()
+                current_time = round(time.time())
+                runtime = current_process_time - runningGame["starting_time"]
+                games_xml = file.getroot()
+                for game in games_xml.iter('game'):
+                    if str(game.find('id').text) == runningGame["game_id"]:
+                        previous_time = int(game.find('time').text)
+                        total_time = round(previous_time + runtime)
+                        game.find('time').text = str(total_time)
+                        game.find('lasttimeplayed').text = str(current_time)
+                        total_time /= 60
+                        self.update_game_time(GameTime(runningGame["game_id"], total_time, current_time))
+                file.write('gametimes.xml')
+                self.runningGames.remove(runningGame)
 
         asyncio.create_task(update_local_games())
 
