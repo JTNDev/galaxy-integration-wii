@@ -22,7 +22,7 @@ class DolphinPlugin(Plugin):
             copyfile(os.path.dirname(os.path.realpath(__file__)) + r'\files\gametimes.xml', os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
         self.game_times = self.get_the_game_times()
         self.local_games_cache = self.local_games_list()
-        self.runningGames = []
+        self.runningGame = self.runningGame = {"game_id": "", "starting_time": 0, "dolphin_running": None, "launched": False}
 
 
 
@@ -58,11 +58,8 @@ class DolphinPlugin(Plugin):
             if str(game[1]) == game_id:
                 if user_config.retroarch is not True:
                     openDolphin = subprocess.Popen([emu_path, "-b", "-e", game[0]])
-                    subprocess.Popen(
-                        [os.path.dirname(os.path.realpath(__file__)) + r'\TimeTracker.exe', game_id, game_id])
-                    gameStartingTime = time.process_time()
-                    running_game = {"game_id": game_id, "starting_time": gameStartingTime, "dolphin_running": openDolphin}
-                    self.runningGames.append(running_game)
+                    gameStartingTime = time.time()
+                    self.runningGame = {"game_id": game_id, "starting_time": gameStartingTime, "dolphin_running": openDolphin}
                 else:
                     subprocess.Popen([user_config.retroarch_executable, "-L", user_config.core_path + r'\dolphin_libretro.dll', game[0]])
                 break
@@ -103,22 +100,24 @@ class DolphinPlugin(Plugin):
                 self.update_local_game_status(local_game_notify)
 
         file = ElementTree.parse(os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
-        for runningGame in self.runningGames:
-            if runningGame["dolphin_running"].poll() is not None:
-                current_process_time = time.process_time()
-                current_time = round(time.time())
-                runtime = current_process_time - runningGame["starting_time"]
-                games_xml = file.getroot()
-                for game in games_xml.iter('game'):
-                    if str(game.find('id').text) == runningGame["game_id"]:
-                        previous_time = int(game.find('time').text)
-                        total_time = round(previous_time + runtime)
-                        game.find('time').text = str(total_time)
-                        game.find('lasttimeplayed').text = str(current_time)
-                        total_time /= 60
-                        self.update_game_time(GameTime(runningGame["game_id"], total_time, current_time))
-                file.write('gametimes.xml')
-                self.runningGames.remove(runningGame)
+        if self.runningGame["dolphin_running"] is not None:
+            if self.runningGame["dolphin_running"].poll() is None:
+                self.runningGame["launched"] = True
+            if self.runningGame["dolphin_running"].poll() is not None:
+                if self.runningGame["launched"]:
+                    current_time = round(time.time())
+                    runtime = time.time() - self.runningGame["starting_time"]
+                    games_xml = file.getroot()
+                    for game in games_xml.iter('game'):
+                        if str(game.find('id').text) == self.runningGame["game_id"]:
+                            previous_time = int(game.find('time').text)
+                            total_time = round(previous_time + runtime)
+                            game.find('time').text = str(total_time)
+                            game.find('lasttimeplayed').text = str(current_time)
+                            self.update_game_time(
+                                GameTime(self.runningGame["game_id"], int(total_time / 60), current_time))
+                    file.write(os.path.dirname(os.path.realpath(__file__)) + r'\gametimes.xml')
+                    self.runningGame["launched"] = False
 
         asyncio.create_task(update_local_games())
 

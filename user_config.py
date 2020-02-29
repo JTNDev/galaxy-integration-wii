@@ -1,5 +1,5 @@
 # Set your roms inside the string/quotes
-roms_path = r"E:\Joshua's Stuff\roms\Wii"
+roms_path = r"E:\Joshua's Stuff\Nextcloud\roms\Wii"
 # Set the path to your Dolphin.exe inside the string/quotes
 emu_path = r"C:\Program Files\Dolphin-x64\Dolphin.exe"
 #Enable to allow the best match algorithm instead of exact game name
