@@ -77,7 +77,7 @@ class BackendClient:
         # Search through directory for Dolphin ROMs
         for root, dirs, files in os.walk(user_config.roms_path):
             for file in files:
-               if file.lower().endswith(".iso") or  file.lower().endswith(".ciso") or file.lower().endswith(".gcm") or file.lower().endswith(".gcz") or file.lower().endswith(".wbfs"):
+               if file.lower().endswith(".iso") or  file.lower().endswith(".ciso") or file.lower().endswith(".gcm") or file.lower().endswith(".gcz") or file.lower().endswith(".wad") or file.lower().endswith(".wbfs"):
                     self.paths.append([os.path.join(root, file)])
                     self.roms.append(os.path.splitext(os.path.basename(file))[0]) # Split name of file from it's path/extension
 
