@@ -1,6 +1,6 @@
 import asyncio
 import os
-import subprocess
+from subprocess import Popen
 import sys
 from shutil import copyfile
 from xml.etree import ElementTree
@@ -14,6 +14,7 @@ from version import __version__
 import time
 
 class DolphinPlugin(Plugin):
+
     def __init__(self, reader, writer, token):
         super().__init__(Platform.NintendoWii, __version__, reader, writer, token)
         self.backend_client = BackendClient()
@@ -23,8 +24,6 @@ class DolphinPlugin(Plugin):
         self.game_times = self.get_the_game_times()
         self.local_games_cache = self.local_games_list()
         self.runningGame = self.runningGame = {"game_id": "", "starting_time": 0, "dolphin_running": None, "launched": False}
-
-
 
     async def authenticate(self, stored_credentials=None):
         return self.do_auth()
@@ -43,7 +42,6 @@ class DolphinPlugin(Plugin):
     async def pass_login_credentials(self, step, credentials, cookies):
         return self.do_auth()
 
-
     def do_auth(self):
         user_data = {}
         username = user_config.roms_path
@@ -51,17 +49,16 @@ class DolphinPlugin(Plugin):
         self.store_credentials(user_data)
         return Authentication("Dolphin", user_data["username"])
 
-
     async def launch_game(self, game_id):
         emu_path = user_config.emu_path
         for game in self.games:
-            if str(game[1]) == game_id:
-                if user_config.retroarch is not True:
-                    openDolphin = subprocess.Popen([emu_path, "-b", "-e", game[0]])
+            if game.id == game_id:
+                if not user_config.retroarch:
+                    openDolphin = Popen([emu_path, "-b", "-e", game.path])
                     gameStartingTime = time.time()
                     self.runningGame = {"game_id": game_id, "starting_time": gameStartingTime, "dolphin_running": openDolphin}
                 else:
-                    subprocess.Popen([user_config.retroarch_executable, "-L", user_config.core_path + r'\dolphin_libretro.dll', game[0]])
+                    Popen([user_config.retroarch_executable, "-L", user_config.core_path + r'\dolphin_libretro.dll', game.path])
                 break
         return
 
@@ -82,12 +79,11 @@ class DolphinPlugin(Plugin):
         for game in self.games:
             local_games.append(
                 LocalGame(
-                    str(game[1]),
+                    game.id,
                     LocalGameState.Installed
                 )
             )
         return local_games
-
 
     def tick(self):
 
@@ -121,7 +117,6 @@ class DolphinPlugin(Plugin):
 
         asyncio.create_task(update_local_games())
 
-
     async def get_owned_games(self):
         self.games = self.backend_client.get_games_db()
         owned_games = []
@@ -129,13 +124,12 @@ class DolphinPlugin(Plugin):
         for game in self.games:
             owned_games.append(
                 Game(
-                    str(game[1]),
-                    game[2],
+                    game.id,
+                    game.name,
                     None,
                     LicenseInfo(LicenseType.SinglePurchase, None)
                 )
             )
-
         return owned_games
 
     async def get_local_games(self):
@@ -144,10 +138,8 @@ class DolphinPlugin(Plugin):
     def shutdown(self):
         pass
 
-
 def main():
     create_and_run_plugin(DolphinPlugin, sys.argv)
-
 
 # run plugin event loop
 if __name__ == "__main__":
