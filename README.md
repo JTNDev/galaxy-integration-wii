@@ -10,7 +10,7 @@ which gives the game database is from GameTDB.
 
 # Setup:
 Just download the file here and extract the ZIP into:
-C:\Users\<username>\AppData\Local\GOG.com\Galaxy\plugins\installed
+C:\Users\\\<username>\AppData\Local\GOG.com\Galaxy\plugins\installed
 
 Edit user_config.py with your ROM and Dolphin location.
 
