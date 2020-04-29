@@ -20,9 +20,9 @@ Go into GOG Galaxy 2.0, click on integrations and connect the one with "Nintendo
 
 All ROMs must be in the same folder. Subfolders are allowed.
 
-If you have the game's ID in the filename you can enable match_by_id.
+If you have the game's ID in the filename you can enable ```match_by_id```.
 
-Enable best_match_game_detection to allow the best match algorithm. It can work as a fallback with match_by_id.
+Enable ```best_match_game_detection``` to allow the best match algorithm. It can work as a fallback with match_by_id.
 
 If you enable none of the above options the name of the ROM must be equivalent to its counterpart in GamesList.txt. You can look up the name in GamesList.txt and edit it accordingly.
 
