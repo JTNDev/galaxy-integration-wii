@@ -9,18 +9,20 @@ Thank you AHCoder for the original program, and the Index file
 which gives the game database is from GameTDB.
 
 # Setup:
-Just download the file here and extract the ZIP into:
-C:\Users\coolj\AppData\Local\GOG.com\Galaxy\plugins\installed
+Just download the file here and extract the ZIP into: ```C:\Users\<username>\AppData\Local\GOG.com\Galaxy\plugins\installed```
 
-Open up user_config.py and edit the ROM and Dolphin location.
-Make sure you use "/" instead of "\\" for the file paths
+Edit user_config.py with your ROMs and Dolphin location.
 
-Go into GOG Galaxy 2.0, click on integrations and connect the one with "Nintendo Wii" 
-and you're done.
+Go into GOG Galaxy 2.0, click on integrations and connect the one with "Nintendo Wii" and you're done.
 
 # Limitations:
-All ROMs must be in the same folder, no subfolders, and also the name of the ROM must be equivalent
-to its counterpart in Index.txt. You can look up the name in Index.txt and edit it
-accordingly.
-If one item in the folder cannot be recognized by the program, none of them can. You can have files with different file extensions in the same folder but if you have for example, "Kingdom Hearts.iso" in the same folder none of them will be registered in GOG Galaxy 2.0.
 
+All ROMs must be in the same folder. Subfolders are allowed.
+
+If you have the game's ID in the filename you can enable ```match_by_id```. Using only this option means that any file without ID falls back to exact match between filename and game name in GamesList.txt.
+
+Enable ```best_match_game_detection``` to allow the best match algorithm. It can work as a fallback with ```match_by_id```.
+
+If you enable none of the above options the name of the ROM must be equivalent to its counterpart in GamesList.txt. You can look up the name in GamesList.txt and edit your file accordingly.
+
+Supported file extensions are ISO, CISO, GCM, GCZ, WAD and WBFS.
