@@ -25,4 +25,4 @@ Enable ```best_match_game_detection``` to allow the best match algorithm. It can
 
 If you enable none of the above options the name of the ROM must be equivalent to its counterpart in GamesList.txt. You can look up the name in GamesList.txt and edit your file accordingly.
 
-Supported file extensions are ISO, CISO, GCM, GCZ, WAD and WBFS.
+Supported file extensions are ISO, CISO, GCM, GCZ, WAD, WBFS, WIA, and RVZ.
